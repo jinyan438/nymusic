@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>沉浸式网络音乐播放器 (离线版)</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="background-container"></div>
+
+<!-- 全屏歌词模式 -->
+<div id="fullscreen-lyrics">
+    <div id="fullscreen-lyrics-bg"></div>
+    <div id="fullscreen-lyrics-content">
+        <div id="fullscreen-song-info">
+            <div id="fullscreen-song-title">未选择歌曲</div>
+            <div id="fullscreen-artist-name">请先搜索或从歌单播放</div>
+        </div>
+        <div id="fullscreen-lyrics-container"></div>
+    </div>
+    <button id="fullscreen-lyrics-close"><i class="fas fa-chevron-down"></i></button>
+</div>
+
+<div id="player-container">
+    <main>
+        <!-- 搜索页面 -->
+        <div id="search-page" class="page active">
+            <div class="header">
+                <h1>牛音播放器</h1>
+            </div>
+            <div id="search-controls">
+                <div class="search-bar">
+                    <input type="text" id="search-input" placeholder="搜索歌曲、歌手、专辑...">
+                    <button id="search-button">搜索</button>
+                </div>
+            </div>
+            <div id="results-container"></div>
+        </div>
+
+        <!-- 播放器页面 -->
+        <div id="player-page" class="page">
+            <div id="player">
+                <div id="album-art"></div>
+                <div id="player-info">
+                    <div id="song-title">未选择歌曲</div>
+                    <div id="artist-name">请先搜索或从歌单播放</div>
+                </div>
+            </div>
+            <div id="lyrics-container">歌词将显示在这里</div>
+            <div class="player-footer">
+                <div class="progress-section">
+                    <span class="time" id="current-time">00:00</span>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar"></div>
+                    </div>
+                    <span class="time" id="duration">00:00</span>
+                </div>
+                <div id="playback-controls">
+                    <button class="playback-btn" id="mode-btn" title="顺序播放"><i class="fas fa-bars"></i></button>
+                    <button class="playback-btn" id="prev-btn"><i class="fas fa-step-backward"></i></button>
+                    <button class="playback-btn" id="play-pause-btn"><i class="fas fa-play"></i></button>
+                    <button class="playback-btn" id="next-btn"><i class="fas fa-step-forward"></i></button>
+                    <button class="playback-btn" id="like-btn" title="添加到收藏"><i class="far fa-heart"></i></button>
+                </div>
+            </div>
+            <audio id="audio-player" style="display: none;"></audio>
+        </div>
+
+        <!-- 歌单页面 -->
+        <div id="playlist-page" class="page">
+            <div class="header"><h1>歌单</h1></div>
+            <div id="import-playlist-section" style="margin-top: 1rem;">
+                <div class="control-group">
+                    <select id="playlist-source-select">
+                        <option value="netease" selected>网易云</option>
+                        <option value="qq">QQ音乐</option>
+                    </select>
+                </div>
+                <div class="search-bar" style="margin-top: 0.8rem;">
+                    <input type="text" id="playlist-id-input" placeholder="输入歌单ID">
+                    <button id="import-playlist-btn">获取</button>
+                </div>
+            </div>
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem; color: var(--text-color);">历史歌单</h3>
+            <div id="imported-playlists"></div>
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem; color: var(--text-color);">
+                本地音乐
+                <button id="scan-local-btn" class="scan-btn"><i class="fas fa-folder-plus"></i> 添加文件夹</button>
+            </h3>
+            <div id="local-scan-progress" style="display:none;margin-bottom:0.5rem;">
+                <p id="local-scan-status" style="text-align:center;color:var(--primary-color);font-size:0.85rem;margin-bottom:0.3rem;"></p>
+                <div class="scan-progress-bar">
+                    <div class="scan-progress-fill" id="scan-progress-fill"></div>
+                </div>
+            </div>
+            <div id="local-playlists"></div>
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem; color: var(--text-color);">我的收藏</h3>
+            <div id="playlist-items"></div>
+        </div>
+
+        <!-- 本地歌单详情页面 -->
+        <div id="local-detail-page" class="page">
+            <div class="header">
+                <button class="header-btn" id="local-back-btn"><i class="fas fa-arrow-left"></i></button>
+                <h1 id="local-detail-title">本地音乐</h1>
+                <div style="width:40px;"></div>
+            </div>
+            <p id="local-detail-info" style="text-align:center;color:var(--text-color-secondary);margin-bottom:1rem;"></p>
+            <div id="local-detail-songs"></div>
+        </div>
+
+        <!-- 歌单详情页面 -->
+        <div id="playlist-detail-page" class="page">
+            <div class="header">
+                <button class="header-btn" id="playlist-back-btn"><i class="fas fa-arrow-left"></i></button>
+                <h1 id="playlist-detail-title">歌单</h1>
+                <div style="width:40px;"></div>
+            </div>
+            <p id="playlist-detail-author" style="text-align:center;color:var(--text-color-secondary);margin-bottom:1rem;"></p>
+            <div id="playlist-detail-songs"></div>
+        </div>
+
+        <!-- 排行榜页面 -->
+        <div id="toplist-page" class="page">
+            <div class="header"><h1>排行榜</h1></div>
+            <div id="toplist-controls" style="margin-top: 1rem;">
+                <div class="control-group">
+                    <select id="toplist-source-select">
+                        <option value="aggregate" selected>聚合榜单</option>
+                        <option value="netease">网易云</option>
+                        <option value="qq">QQ音乐</option>
+                    </select>
+                </div>
+            </div>
+            <div id="toplist-categories" style="margin-top: 1rem;"></div>
+        </div>
+
+        <!-- 榜单歌曲页面 -->
+        <div id="toplist-songs-page" class="page">
+            <div class="header">
+                <button class="header-btn" id="toplist-back-btn"><i class="fas fa-arrow-left"></i></button>
+                <h1 id="toplist-songs-title">榜单</h1>
+                <div style="width:40px;"></div>
+            </div>
+            <div id="toplist-songs" style="margin-top: 1rem;"></div>
+        </div>
+
+        <!-- 设置页面 -->
+        <div id="settings-page" class="page">
+            <div class="header"><h1>设置</h1></div>
+            <div class="settings-group">
+                <div class="setting-item">
+                    <span class="setting-label">音乐源</span>
+                    <select id="music-source-select" class="setting-select">
+                        <option value="aggregate">聚合搜索</option>
+                        <option value="netease">网易云</option>
+                        <option value="qq">QQ音乐</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <span class="setting-label">播放音质</span>
+                    <select id="play-quality-select" class="setting-select">
+                        <option value="128k">标准 128k</option>
+                        <option value="320k">高品 320k</option>
+                        <option value="flac">无损 FLAC</option>
+                        <option value="flac24bit">Hi-Res 24bit</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <span class="setting-label">下载音质</span>
+                    <select id="download-quality-select" class="setting-select">
+                        <option value="128k">标准 128k</option>
+                        <option value="320k">高品 320k</option>
+                        <option value="flac">无损 FLAC</option>
+                        <option value="flac24bit">Hi-Res 24bit</option>
+                    </select>
+                </div>
+                <button class="setting-button" id="clear-songs-cache-btn">
+                    <i class="fas fa-compact-disc"></i>
+                    <span>清除歌曲缓存</span>
+                </button>
+                <button class="setting-button" id="clear-all-cache-btn">
+                    <i class="fas fa-trash-alt"></i>
+                    <span>清除所有缓存</span>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <nav>
+        <div class="nav-item active" data-page="search-page">
+            <i class="fas fa-search"></i>
+            <span>搜索</span>
+        </div>
+        <div class="nav-item" data-page="toplist-page">
+            <i class="fas fa-trophy"></i>
+            <span>榜单</span>
+        </div>
+        <div class="nav-item" data-page="player-page">
+            <i class="fas fa-compact-disc"></i>
+            <span>播放</span>
+        </div>
+        <div class="nav-item" data-page="playlist-page">
+            <i class="fas fa-list"></i>
+            <span>歌单</span>
+        </div>
+        <div class="nav-item" data-page="settings-page">
+            <i class="fas fa-cog"></i>
+            <span>设置</span>
+        </div>
+    </nav>
+</div>
+
+<!-- JavaScript 模块 -->
+<script src="js/idb.js"></script>
+<script src="js/config.js"></script>
+<script src="js/state.js"></script>
+<script src="js/dom.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/image-loader.js"></script>
+<script src="js/navigation.js"></script>
+<script src="js/lyrics.js"></script>
+<script src="js/playlist.js"></script>
+<script src="js/toplist.js"></script>
+<script src="js/search.js"></script>
+<script src="js/player.js"></script>
+<script src="js/download.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/audio-metadata-reader.js"></script>
+<script src="js/local-music.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

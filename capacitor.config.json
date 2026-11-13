@@ -1,0 +1,17 @@
+{
+  "appId": "com.niuyin.player",
+  "appName": "牛音播放器",
+  "webDir": "www",
+  "server": {
+    "cleartext": true,
+    "allowNavigation": [
+      "api.lrc.cx",
+      "*.lrc.cx",
+      "music-dl.sayqz.com",
+      "*"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
