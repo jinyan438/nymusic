@@ -3,6 +3,8 @@ node_modules/
 /dist/
 /build/
 /coverage/
+/.cache/
+/android/bass-sdk/
 *.apk
 *.aab
 *.aar

@@ -18,7 +18,7 @@ function initEventListeners() {
     DOM.toplistBackBtn.addEventListener('click', () => showPage('toplist-page'));
     
     // 播放控制
-    DOM.audioPlayer.addEventListener('ended', handleSongEnd);
+    Playback.addEventListener('ended', handleSongEnd);
     DOM.prevBtn.addEventListener('click', playPrev);
     DOM.nextBtn.addEventListener('click', playNext);
     DOM.playPauseBtn.addEventListener('click', togglePlayPause);
@@ -26,18 +26,27 @@ function initEventListeners() {
     DOM.likeBtn.addEventListener('click', toggleLike);
     
     // 播放状态
-    DOM.audioPlayer.addEventListener('play', () => {
+    Playback.addEventListener('play', () => {
         DOM.playPauseBtn.querySelector('i').className = 'fas fa-pause';
         DOM.albumArt.style.animationPlayState = 'running';
         startLyricsAnimation();
     });
-    DOM.audioPlayer.addEventListener('pause', () => {
+    Playback.addEventListener('pause', () => {
         DOM.playPauseBtn.querySelector('i').className = 'fas fa-play';
         DOM.albumArt.style.animationPlayState = 'paused';
         stopLyricsAnimation();
     });
-    DOM.audioPlayer.addEventListener('timeupdate', updateProgress);
-    DOM.audioPlayer.addEventListener('loadedmetadata', () => DOM.durationDisplay.textContent = formatTime(DOM.audioPlayer.duration));
+    Playback.addEventListener('timeupdate', updateProgress);
+    Playback.addEventListener('loadedmetadata', () => DOM.durationDisplay.textContent = formatTime(Playback.duration));
+    Playback.addEventListener('trackchange', syncNativeTrack);
+    Playback.addEventListener('error', event => {
+        console.error('播放失败:', event.detail || event);
+        DOM.songTitle.textContent = '播放失败';
+        DOM.playPauseBtn.querySelector('i').className = 'fas fa-play';
+        DOM.albumArt.style.animationPlayState = 'paused';
+        stopLyricsAnimation();
+        if (event.detail?.message) alert(event.detail.message);
+    });
     
     // 进度条
     DOM.progressBarWrapper.addEventListener('click', setProgress);
@@ -61,6 +70,11 @@ async function initApp() {
     await loadPlaybackMode();
     await loadSettings();
     await LocalMusic.init();
+    try {
+        await Playback.init();
+    } catch (error) {
+        Playback.reportError(error);
+    }
 }
 
 initApp();

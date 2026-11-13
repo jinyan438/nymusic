@@ -1,0 +1,14 @@
+{
+  "baseUrl": "https://www.un4seen.com/files/",
+  "architectures": ["arm64-v8a", "armeabi-v7a", "x86_64", "x86"],
+  "components": [
+    { "name": "bass", "archive": "bass24-android.zip", "sha256": "236C9017728A910DFE74E79D36D98AD6784F3558C21E8812CFCBAFE9BD0FEF41" },
+    { "name": "bassmix", "archive": "bassmix24-android.zip", "sha256": "1E86DF9154917789D1072CF81AC0BD439CB67D5711DAC8B61299425E97B8B34B" },
+    { "name": "bassflac", "archive": "bassflac24-android.zip", "sha256": "59C62FD60185450E157E727910BE2460A0F66DEDD2D6EA1BB3F1C80657DD0DA8" },
+    { "name": "bassalac", "archive": "bassalac24-android.zip", "sha256": "8CA58D4F3D1CF85557BB7A77E36288B1E45EF152DFED10E58DB7CFED62C47A46" },
+    { "name": "bassopus", "archive": "bassopus24-android.zip", "sha256": "76D3CB4AE8799D12D5C8F0138453B8834DF7173A66D88E56B47C75A5E4518945" },
+    { "name": "bassape", "archive": "bassape24-android.zip", "sha256": "B0E3EA16204DEFCB2DF4BC638ED1D195C0D9FB1608CE1DC3B31E334A28291B87" },
+    { "name": "basswv", "archive": "basswv24-android.zip", "sha256": "32FE950ECE5A6D1EA4F3C52E19F89841E6625331381708A8D7E8558C10A58FBA" },
+    { "name": "bassdsd", "archive": "bassdsd24-android.zip", "sha256": "96745AAB0EF141B1A113454254082BE433AEB3B6F5AE691C5F86C6C7D195BA64" }
+  ]
+}

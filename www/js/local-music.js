@@ -1,7 +1,7 @@
 // 本地音乐模块 - 支持扫描本地文件夹和高解析度音频(24bit/192kHz)
 const LocalMusic = {
     // 支持的音频格式
-    SUPPORTED_FORMATS: ['.mp3', '.flac', '.wav', '.aac', '.m4a', '.ogg', '.wma', '.aiff', '.alac', '.dsd', '.dsf', '.dff'],
+    SUPPORTED_FORMATS: ['.mp3', '.flac', '.wav', '.aac', '.m4a', '.ogg', '.opus', '.wma', '.aiff', '.aif', '.alac', '.ape', '.wv', '.dsd', '.dsf', '.dff'],
     
     // 本地歌单
     localPlaylists: [],
@@ -1327,7 +1327,7 @@ const LocalMusic = {
     },
     
     // 播放本地音乐
-    async playLocalTrack(track, playlistId) {
+    async playLocalTrack(track, playlistId, options = {}) {
         try {
             currentTrackData = { ...track, playlistId };
             showPage('player-page');
@@ -1373,11 +1373,9 @@ const LocalMusic = {
             
             let audioUrl;
             
-            if (this.isCapacitor()) {
-                // Android原生播放
-                const { Filesystem } = Capacitor.Plugins;
-                const result = await Filesystem.getUri({ path: track.filePath });
-                audioUrl = Capacitor.convertFileSrc(result.uri);
+            if (options.syncOnly) return;
+            if (Playback.isNative) {
+                audioUrl = track.filePath;
             } else {
                 // Web播放 - 需要目录句柄，支持重新授权
                 try {
@@ -1402,8 +1400,7 @@ const LocalMusic = {
                 }
             }
             
-            DOM.audioPlayer.src = audioUrl;
-            DOM.audioPlayer.play();
+            await Playback.load({ uri: audioUrl, ...getPlaybackContext({ ...track, playlistId }) });
             
         } catch (error) {
             console.error('播放本地音乐失败:', error);

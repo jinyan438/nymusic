@@ -306,7 +306,7 @@ function smoothScrollTo(container, targetY, animState) {
 
 function updateLyrics() {
     if (currentLyrics.length === 0) return;
-    const currentTime = DOM.audioPlayer.currentTime;
+    const currentTime = Playback.currentTime;
     let newLyricIndex = -1;
     for (let i = 0; i < currentLyrics.length; i++) {
         if (currentTime >= currentLyrics[i].time) newLyricIndex = i;

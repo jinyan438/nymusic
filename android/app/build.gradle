@@ -22,7 +22,33 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    sourceSets {
+        main.java.srcDir '../bass-sdk/java'
+        main.jniLibs.srcDir '../bass-sdk/jniLibs'
+        main.assets.srcDir '../bass-sdk/licenses'
+    }
+    packagingOptions {
+        jniLibs.useLegacyPackaging = true
+    }
 }
+
+tasks.register('verifyBassSdk') {
+    doLast {
+        def sdk = file('../bass-sdk')
+        def manifest = new groovy.json.JsonSlurper().parse(file('../../scripts/bass-sdk.json'))
+        manifest.architectures.each { abi ->
+            manifest.components.each { component ->
+                if (!new File(sdk, "jniLibs/${abi}/lib${component.name}.so").isFile()) {
+                    throw new GradleException('BASS SDK missing. Run: powershell -File scripts/setup-bass.ps1')
+                }
+            }
+        }
+        if (!new File(sdk, 'java/com/un4seen/bass/BASS.java').isFile()) {
+            throw new GradleException('BASS Java bindings missing. Run scripts/setup-bass.ps1')
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn 'verifyBassSdk' }
 
 repositories {
     flatDir{

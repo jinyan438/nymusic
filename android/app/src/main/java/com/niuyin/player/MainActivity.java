@@ -14,6 +14,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(LocalMusicFilesPlugin.class);
+        registerPlugin(BassAudioPlugin.class);
         super.onCreate(savedInstanceState);
         
         // 设置全屏沉浸模式，防止滑动时系统栏导致的抖动

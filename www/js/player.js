@@ -1,10 +1,10 @@
 // 播放器核心
-async function playSong(dataset) {
+async function playSong(dataset, options = {}) {
     if (!dataset) return;
     
     // 如果是本地音乐，使用LocalMusic模块播放
     if (dataset.source === 'local') {
-        LocalMusic.playLocalTrack(dataset, dataset.playlistId);
+        await LocalMusic.playLocalTrack(dataset, dataset.playlistId, options);
         return;
     }
     
@@ -19,7 +19,6 @@ async function playSong(dataset) {
     updateLikeButton();
     DOM.albumArt.style.backgroundImage = `url('https://via.placeholder.com/400x400/121212/808080?text=Loading...')`;
     DOM.albumArt.style.animationPlayState = 'paused';
-    DOM.audioPlayer.src = '';
     DOM.lyricsContainer.innerHTML = '正在加载...';
     DOM.currentTimeDisplay.textContent = '00:00';
     DOM.durationDisplay.textContent = '00:00';
@@ -31,20 +30,22 @@ async function playSong(dataset) {
     
     // 1. 获取歌曲URL
     const songKey = CacheKeys.getSongKey(source, trackId, quality);
-    let songResponse = await songAssetsCache.match(songKey);
     try {
-        if (!songResponse) {
+        if (!options.syncOnly) {
+            const songResponse = await songAssetsCache.match(songKey);
+            if (currentTrackData !== dataset) return;
             const songUrl = `${API_BASE}?source=${source}&id=${trackId}&type=url&br=${quality}`;
-            DOM.audioPlayer.src = songUrl;
-        } else {
-            const blob = await songResponse.blob();
-            DOM.audioPlayer.src = URL.createObjectURL(blob);
+            await Playback.load({
+                uri: songUrl, cachedResponse: songResponse, cacheKey: songKey,
+                ...getPlaybackContext(dataset)
+            });
         }
-        DOM.audioPlayer.play();
     } catch (error) {
         console.error('获取歌曲URL失败:', error);
         DOM.songTitle.textContent = '播放失败';
+        Playback.reportError(error);
     }
+    if (currentTrackData !== dataset) return;
 
     // 2. 获取封面
     const picKey = CacheKeys.getPicKey(source, trackId);
@@ -132,15 +133,16 @@ async function playSong(dataset) {
 
 // 播放控制
 function handleSongEnd() {
+    if (Playback.isNative) return; // The service advances the queue while the WebView is asleep.
     if (playbackMode === 'repeat') {
-        DOM.audioPlayer.currentTime = 0;
-        DOM.audioPlayer.play();
+        Playback.seek(0).then(() => Playback.play()).catch(error => Playback.reportError(error));
     } else {
         playNext();
     }
 }
 
 function playNext() {
+    if (Playback.isNative) { Playback.next().catch(error => Playback.reportError(error)); return; }
     if (playlist.length === 0) return;
     if (currentPlaylistIndex === -1) {
         currentPlaylistIndex = 0;
@@ -166,6 +168,7 @@ function playNext() {
 }
 
 function playPrev() {
+    if (Playback.isNative) { Playback.previous().catch(error => Playback.reportError(error)); return; }
     if (playlist.length === 0) return;
     if (currentPlaylistIndex !== -1) {
         if (playbackMode === 'random' && playlist.length > 1) {
@@ -182,12 +185,12 @@ function playPrev() {
 }
 
 function togglePlayPause() {
-    if (DOM.audioPlayer.paused) DOM.audioPlayer.play();
-    else DOM.audioPlayer.pause();
+    const action = Playback.paused ? Playback.play() : Playback.pause();
+    Promise.resolve(action).catch(error => Playback.reportError(error));
 }
 
 function updateProgress() {
-    const { duration, currentTime } = DOM.audioPlayer;
+    const { duration, currentTime } = Playback;
     if (duration) {
         DOM.progressBar.style.width = `${(currentTime / duration) * 100}%`;
         DOM.currentTimeDisplay.textContent = formatTime(currentTime);
@@ -214,8 +217,8 @@ function stopLyricsAnimation() {
 }
 
 function setProgress(e) {
-    const duration = DOM.audioPlayer.duration;
-    if (duration) DOM.audioPlayer.currentTime = (e.offsetX / this.clientWidth) * duration;
+    const duration = Playback.duration;
+    if (duration) Playback.seek((e.offsetX / this.clientWidth) * duration).catch(error => Playback.reportError(error));
 }
 
 function setPlaybackMode(mode) {
@@ -236,6 +239,34 @@ function setPlaybackMode(mode) {
             break;
     }
     IDB.setSetting('playbackMode', mode);
+    Playback.setMode(mode).catch(error => console.warn('更新播放模式失败:', error));
+}
+
+function getPlaybackContext(track) {
+    const entry = item => {
+        const data = {};
+        for (const key of ['trackId', 'source', 'songName', 'artist', 'album', 'filePath', 'playlistId', 'format']) {
+            if (item[key] != null) data[key] = item[key];
+        }
+        const uri = item.source === 'local' ? item.filePath
+            : `${API_BASE}?source=${item.source}&id=${item.trackId}&type=url&br=${DOM.playQualitySelect.value}`;
+        return { uri, track: data };
+    };
+    const queue = playlist.map(entry);
+    const index = playlist.findIndex(item => item.source === track.source && item.trackId === track.trackId);
+    return { track: entry(track).track, queue, index, mode: playbackMode };
+}
+
+async function syncNativeTrack(event) {
+    const data = event.detail;
+    if (!data?.track) return;
+    if (currentTrackData?.source === data.track.source && currentTrackData?.trackId === data.track.trackId) return;
+    currentPlaylistIndex = data.index;
+    let track = playlist.find(item => item.source === data.track.source && item.trackId === data.track.trackId);
+    if (!track && data.track.source === 'local') {
+        track = LocalMusic.localPlaylists.flatMap(list => list.tracks).find(item => item.trackId === data.track.trackId);
+    }
+    await playSong(track || data.track, { syncOnly: true });
 }
 
 function togglePlaybackMode() {

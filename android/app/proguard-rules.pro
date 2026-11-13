@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Official BASS JNI entry points and callbacks use these names.
+-keep class com.un4seen.bass.** { *; }
