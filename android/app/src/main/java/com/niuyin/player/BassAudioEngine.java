@@ -16,6 +16,7 @@ import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
+import org.json.JSONObject;
 
 /** One audio worker owns all decoder handles. UI and notification commands never decode audio. */
 final class BassAudioEngine implements AutoCloseable {
@@ -34,8 +35,14 @@ final class BassAudioEngine implements AutoCloseable {
     BassAudioEngine(Context context, Listener listener) { this.context = context.getApplicationContext(); this.listener = listener; }
 
     void load(long id, String uri) {
+        load(id, uri, false, null);
+    }
+    void load(long id, String uri, boolean resolveQqMusicUrl, JSONObject requestHeaders) {
+        load(id, uri, resolveQqMusicUrl, requestHeaders, null);
+    }
+    void load(long id, String uri, boolean resolveQqMusicUrl, JSONObject requestHeaders, String[] cacheKeys) {
         stop();
-        Session session = new Session(id, uri);
+        Session session = new Session(id, uri, resolveQqMusicUrl, requestHeaders, cacheKeys);
         current = session;
         worker.execute(session);
     }
@@ -76,6 +83,9 @@ final class BassAudioEngine implements AutoCloseable {
     private final class Session implements Runnable {
         final long id;
         final String uri;
+        final boolean resolveQqMusicUrl;
+        final JSONObject requestHeaders;
+        final String[] cacheKeys;
         final BassDecoder decoder = new BassDecoder();
         final Object wakeup = new Object();
         final AtomicReference<Double> seek = new AtomicReference<>();
@@ -98,7 +108,10 @@ final class BassAudioEngine implements AutoCloseable {
         long lastState;
         long startedAt;
 
-        Session(long id, String uri) { this.id = id; this.uri = uri; }
+        Session(long id, String uri, boolean resolveQqMusicUrl, JSONObject requestHeaders, String[] cacheKeys) {
+            this.id = id; this.uri = uri; this.resolveQqMusicUrl = resolveQqMusicUrl; this.requestHeaders = requestHeaders;
+            this.cacheKeys = cacheKeys;
+        }
         void wake() { synchronized (wakeup) { wakeup.notifyAll(); } }
         void waitBriefly(int milliseconds) throws InterruptedException { synchronized (wakeup) { if (!cancelled) wakeup.wait(milliseconds); } }
 
@@ -106,7 +119,7 @@ final class BassAudioEngine implements AutoCloseable {
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
             try {
                 if (cancelled) return;
-                decoder.open(context, uri);
+                decoder.open(context, uri, resolveQqMusicUrl, requestHeaders, cacheKeys);
                 if (cancelled) return;
                 configureOutput(0);
                 if (cancelled) return;

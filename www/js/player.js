@@ -11,13 +11,14 @@ async function playSong(dataset, options = {}) {
     currentTrackData = dataset;
     showPage('player-page');
 
-    const { trackId, source, songName, artist } = dataset;
+    const { songName, artist } = dataset;
     const quality = DOM.playQualitySelect.value;
     
     DOM.songTitle.textContent = songName;
     DOM.artistName.textContent = artist;
     updateLikeButton();
-    DOM.albumArt.style.backgroundImage = `url('https://via.placeholder.com/400x400/121212/808080?text=Loading...')`;
+    DOM.albumArt.style.backgroundImage = '';
+    DOM.backgroundContainer.style.backgroundImage = '';
     DOM.albumArt.style.animationPlayState = 'paused';
     DOM.lyricsContainer.innerHTML = '正在加载...';
     DOM.currentTimeDisplay.textContent = '00:00';
@@ -26,55 +27,75 @@ async function playSong(dataset, options = {}) {
     currentLyrics = [];
     currentLyricIndex = -1;
 
-    const songAssetsCache = await caches.open(SONG_ASSETS_CACHE_NAME);
-    
-    // 1. 获取歌曲URL
-    const songKey = CacheKeys.getSongKey(source, trackId, quality);
+    const songAssetsCache = await caches.open(SONG_ASSETS_CACHE_NAME).catch(error => {
+        console.warn('读取歌曲缓存失败:', error);
+        return null;
+    });
+    if (currentTrackData !== dataset) return;
+    // 音频、封面和歌词独立加载，任何一项的网络等待都不会阻塞其他项。
+    await Promise.allSettled([
+        options.syncOnly ? Promise.resolve() : loadOnlineSongAudio(songAssetsCache, dataset, quality),
+        loadOnlineSongCover(songAssetsCache, dataset),
+        loadOnlineSongLyrics(songAssetsCache, dataset)
+    ]);
+}
+
+async function loadOnlineSongAudio(songAssetsCache, dataset, quality) {
     try {
-        if (!options.syncOnly) {
-            const songResponse = await songAssetsCache.match(songKey);
-            if (currentTrackData !== dataset) return;
-            const songUrl = `${API_BASE}?source=${source}&id=${trackId}&type=url&br=${quality}`;
-            await Playback.load({
-                uri: songUrl, cachedResponse: songResponse, cacheKey: songKey,
-                ...getPlaybackContext(dataset)
-            });
-        }
+        const cached = await CacheKeys.findSong(songAssetsCache, dataset.source, dataset.trackId, quality);
+        if (currentTrackData !== dataset) return;
+        const request = Playback.isNative ? MusicAPI.getPlaybackRequest(dataset, quality)
+            : { uri: cached.response ? '' : await MusicAPI.getSongUrl(dataset, quality) };
+        if (currentTrackData !== dataset) return;
+        await Playback.load({
+            ...request, cachedResponse: cached.response, cacheKey: cached.key,
+            ...getPlaybackContext(dataset)
+        });
     } catch (error) {
         console.error('获取歌曲URL失败:', error);
+        if (currentTrackData !== dataset) return;
         DOM.songTitle.textContent = '播放失败';
         Playback.reportError(error);
     }
-    if (currentTrackData !== dataset) return;
+}
 
-    // 2. 获取封面
+async function loadOnlineSongCover(songAssetsCache, dataset) {
+    const { trackId, source, songName, artist } = dataset;
     const picKey = CacheKeys.getPicKey(source, trackId);
-    let picResponse = await songAssetsCache.match(picKey);
+    const picResponse = await songAssetsCache?.match(picKey);
+    if (currentTrackData !== dataset) return;
     if (picResponse) {
         const blob = await picResponse.blob();
+        if (currentTrackData !== dataset) return;
         const imageUrl = URL.createObjectURL(blob);
         DOM.albumArt.style.backgroundImage = `url(${imageUrl})`;
         DOM.backgroundContainer.style.backgroundImage = `url(${imageUrl})`;
     } else {
-        const picUrl = `${API_BASE}?source=${source}&id=${trackId}&type=pic`;
-        // 尝试加载原始封面，失败后自动从API获取
-        loadBackgroundImageWithFallback(picUrl, [DOM.albumArt, DOM.backgroundContainer], trackId, songName, artist);
+        try {
+            const picUrl = await MusicAPI.getCoverUrl(dataset);
+            if (currentTrackData !== dataset) return;
+            loadBackgroundImageWithFallback(picUrl, [DOM.albumArt, DOM.backgroundContainer], trackId, songName, artist);
+        } catch (error) {
+            console.warn('获取封面失败:', error);
+            const coverUrl = await fetchCoverFromAPI(songName, artist, dataset.album);
+            if (coverUrl && currentTrackData === dataset) displayCover(coverUrl, [DOM.albumArt, DOM.backgroundContainer]);
+        }
     }
 
-    // 3. 获取歌词
+}
+
+async function loadOnlineSongLyrics(songAssetsCache, dataset) {
+    const { trackId, source, songName, artist } = dataset;
     const lyricKey = CacheKeys.getLyricKey(source, trackId);
-    let lyricResponse = await songAssetsCache.match(lyricKey);
+    const lyricResponse = await songAssetsCache?.match(lyricKey);
     try {
         let lrcText = '';
         if (lyricResponse) {
             lrcText = await lyricResponse.text();
         } else {
-            const lyricUrl = `${API_BASE}?source=${source}&id=${trackId}&type=lrc`;
-            const onlineLyricResponse = await fetch(lyricUrl);
-            if (onlineLyricResponse.ok) {
-                lrcText = await onlineLyricResponse.text();
-            }
+            lrcText = await MusicAPI.getLyrics(dataset);
         }
+        if (currentTrackData !== dataset) return;
         
         currentLyrics = parseLyrics(lrcText);
         currentLyrics.sort((a, b) => a.time - b.time);
@@ -113,6 +134,7 @@ async function playSong(dataset, options = {}) {
             DOM.lyricsContainer.innerHTML = '<p>正在搜索歌词...</p>';
             try {
                 const autoLyrics = await fetchLyricsFromAPI(songName, artist, null);
+                if (currentTrackData !== dataset) return;
                 console.log('fetchLyricsFromAPI返回:', autoLyrics ? '有内容' : 'null');
                 if (autoLyrics && displayLyrics(autoLyrics, DOM.lyricsContainer)) {
                     console.log('自动获取歌词成功');
@@ -121,11 +143,13 @@ async function playSong(dataset, options = {}) {
                     DOM.lyricsContainer.innerHTML = '<p>暂无歌词</p>';
                 }
             } catch (e) {
+                if (currentTrackData !== dataset) return;
                 console.error('自动获取歌词异常:', e);
                 DOM.lyricsContainer.innerHTML = '<p>暂无歌词</p>';
             }
         }
     } catch (error) {
+        if (currentTrackData !== dataset) return;
         console.error('获取歌词失败:', error);
         DOM.lyricsContainer.textContent = '获取歌词失败。';
     }
@@ -245,12 +269,10 @@ function setPlaybackMode(mode) {
 function getPlaybackContext(track) {
     const entry = item => {
         const data = {};
-        for (const key of ['trackId', 'source', 'songName', 'artist', 'album', 'filePath', 'playlistId', 'format']) {
+        for (const key of ['trackId', 'source', 'songName', 'artist', 'album', 'albumMid', 'mediaId', 'filePath', 'playlistId', 'format']) {
             if (item[key] != null) data[key] = item[key];
         }
-        const uri = item.source === 'local' ? item.filePath
-            : `${API_BASE}?source=${item.source}&id=${item.trackId}&type=url&br=${DOM.playQualitySelect.value}`;
-        return { uri, track: data };
+        return { ...MusicAPI.getPlaybackRequest(item, DOM.playQualitySelect.value), track: data };
     };
     const queue = playlist.map(entry);
     const index = playlist.findIndex(item => item.source === track.source && item.trackId === track.trackId);

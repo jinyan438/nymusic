@@ -64,7 +64,7 @@ class AudioPlayback extends EventTarget {
         this.dispatchEvent(new Event('timeupdate'));
     }
 
-    async load({ uri, cachedResponse, cacheKey, track, queue = [], index = -1, mode = this.mode }) {
+    async load({ uri, cachedResponse, cacheKey, cacheKeys = [], track, queue = [], index = -1, mode = this.mode, resolveQqMusicUrl = false, requestHeaders = {} }) {
         const generation = ++this.generation;
         await this.init();
         if (generation !== this.generation) return;
@@ -87,10 +87,14 @@ class AudioPlayback extends EventTarget {
         this.state = { paused: true, position: 0, duration: 0, buffering: true };
         this.dispatchEvent(new Event('pause'));
         try {
-            if (cachedResponse) uri = await this.stageCachedAudio(cachedResponse, cacheKey, generation);
+            if (cachedResponse) {
+                await this.stageCachedAudio(cachedResponse, cacheKey, generation);
+                if (!cacheKeys.length) cacheKeys = [cacheKey];
+            }
             if (generation !== this.generation) return;
-            if (index >= 0 && queue[index]) queue[index] = { ...queue[index], uri };
-            const state = await this.plugin.load({ uri, track, queue, index, mode, clientId: this.clientId });
+            // 原生解码器先查本地文件；保留在线请求，供系统回收缓存后的队列切歌使用。
+            if (index >= 0 && queue[index]) queue[index] = { ...queue[index], cacheKeys };
+            const state = await this.plugin.load({ uri, track, queue, index, mode, resolveQqMusicUrl, requestHeaders, cacheKeys, clientId: this.clientId });
             if (generation === this.generation) this.applyState(state);
         } catch (error) {
             if (generation === this.generation) throw error;
@@ -99,35 +103,7 @@ class AudioPlayback extends EventTarget {
 
     // Copy CacheStorage blobs in bounded chunks. Native decoders cannot open blob: URLs.
     async stageCachedAudio(response, key, generation) {
-        const filesystem = this.capacitor.Plugins.Filesystem;
-        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
-        const name = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
-        const path = `bass-playback/${name}.audio`;
-        const blob = await response.blob();
-        try {
-            const info = await filesystem.stat({ path, directory: 'CACHE' });
-            if (info.size === blob.size) return (await filesystem.getUri({ path, directory: 'CACHE' })).uri;
-        } catch (_) { /* A new cached song needs a native file. */ }
-        const temporary = `${path}.${generation}.part`;
-        try {
-            for (let offset = 0; offset < blob.size; offset += 192 * 1024) {
-                if (generation !== this.generation) throw new Error('Playback cancelled');
-                const bytes = new Uint8Array(await blob.slice(offset, offset + 192 * 1024).arrayBuffer());
-                let binary = '';
-                for (let start = 0; start < bytes.length; start += 8192) {
-                    binary += String.fromCharCode(...bytes.subarray(start, start + 8192));
-                }
-                const options = { path: temporary, directory: 'CACHE', data: btoa(binary) };
-                if (offset === 0) await filesystem.writeFile({ ...options, recursive: true });
-                else await filesystem.appendFile(options);
-            }
-            if (blob.size === 0) throw new Error('歌曲缓存为空');
-            await filesystem.rename({ from: temporary, to: path, directory: 'CACHE', toDirectory: 'CACHE' });
-            return (await filesystem.getUri({ path, directory: 'CACHE' })).uri;
-        } catch (error) {
-            await filesystem.deleteFile({ path: temporary, directory: 'CACHE' }).catch(() => {});
-            throw error;
-        }
+        return NativeAudioCache.getOrCreate(response, key, this.capacitor, () => generation !== this.generation);
     }
 
     async play() { await this.init(); return this.isNative ? this.plugin.play() : this.element.play(); }

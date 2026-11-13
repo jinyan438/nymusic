@@ -64,6 +64,9 @@ public final class BassPlaybackService extends Service implements BassAudioEngin
     private JSONArray queue = new JSONArray();
     private JSONObject track;
     private String uri;
+    private boolean resolveQqMusicUrl;
+    private JSONObject requestHeaders;
+    private String[] cacheKeys;
     private String clientId = "";
     private String mode = "order";
     private int index = -1;
@@ -144,14 +147,16 @@ public final class BassPlaybackService extends Service implements BassAudioEngin
             index = request.optInt("index", -1);
             mode = validMode(request.optString("mode"));
             clientId = request.optString("clientId");
-            beginLoad(location, request.optJSONObject("track"), result, false);
+            beginLoad(location, request.optJSONObject("track"), request.optBoolean("resolveQqMusicUrl"), request.optJSONObject("requestHeaders"), cacheKeys(request), result, false);
         });
     }
 
-    private void beginLoad(String location, JSONObject metadata, Result result, boolean notifyTrack) {
+    private void beginLoad(String location, JSONObject metadata, boolean resolveQq, JSONObject headers, String[] keys, Result result, boolean notifyTrack) {
         if (pendingLoad != null) pendingLoad.reject("Playback cancelled");
         pendingLoad = result;
         uri = location; track = metadata; ready = false; resumeOnFocus = false;
+        resolveQqMusicUrl = resolveQq; requestHeaders = headers;
+        cacheKeys = keys;
         requestedPaused = false;
         version++;
         try {
@@ -163,7 +168,7 @@ public final class BassPlaybackService extends Service implements BassAudioEngin
             lastNotificationPaused = null;
             publish();
             if (notifyTrack) emit("track", state());
-            engine.load(version, location);
+            engine.load(version, location, resolveQq, headers, keys);
         } catch (RuntimeException error) { fail(error.getMessage()); }
     }
 
@@ -171,7 +176,7 @@ public final class BassPlaybackService extends Service implements BassAudioEngin
         main.post(() -> {
             resumeOnFocus = false;
             if (uri == null) { if (result != null) result.reject("请先选择一首歌曲"); return; }
-            if (!ready) { beginLoad(uri, track, result, false); return; }
+            if (!ready) { beginLoad(uri, track, resolveQqMusicUrl, requestHeaders, cacheKeys, result, false); return; }
             try {
                 ensureForeground();
                 if (!requestFocus()) throw new IllegalStateException("暂时无法取得音频焦点");
@@ -217,7 +222,7 @@ public final class BassPlaybackService extends Service implements BassAudioEngin
             JSONObject entry = queue.optJSONObject(next);
             if (entry == null || entry.optString("uri").isEmpty()) { if (result != null) result.reject("播放列表条目无效"); return; }
             index = next;
-            beginLoad(entry.optString("uri"), entry.optJSONObject("track"), result, true);
+            beginLoad(entry.optString("uri"), entry.optJSONObject("track"), entry.optBoolean("resolveQqMusicUrl"), entry.optJSONObject("requestHeaders"), cacheKeys(entry), result, true);
         });
     }
 
@@ -258,7 +263,7 @@ public final class BassPlaybackService extends Service implements BassAudioEngin
         main.post(() -> {
             if (id != version) return;
             ready = false;
-            if ("repeat".equals(mode) && (index < 0 || queue.length() == 0)) beginLoad(uri, track, null, false);
+            if ("repeat".equals(mode) && (index < 0 || queue.length() == 0)) beginLoad(uri, track, resolveQqMusicUrl, requestHeaders, cacheKeys, null, false);
             else if (queue.length() > 0) skip(false, null);
             else {
                 requestedPaused = true;
@@ -371,6 +376,12 @@ public final class BassPlaybackService extends Service implements BassAudioEngin
         return state;
     }
     private static String validMode(String mode) { return "random".equals(mode) || "repeat".equals(mode) ? mode : "order"; }
+    private static String[] cacheKeys(JSONObject request) {
+        JSONArray keys = request.optJSONArray("cacheKeys");
+        String[] result = new String[keys == null ? 0 : Math.min(keys.length(), 8)];
+        for (int i = 0; i < result.length; i++) result[i] = keys.optString(i);
+        return result;
+    }
     private static JSObject copy(JSONObject source) {
         JSObject result = new JSObject();
         for (Iterator<String> keys = source.keys(); keys.hasNext();) { String key = keys.next(); result.put(key, source.opt(key)); }

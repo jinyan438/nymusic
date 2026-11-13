@@ -4,10 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>沉浸式网络音乐播放器 (离线版)</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="vendor/poppins/poppins.css">
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -172,6 +170,13 @@
                         <option value="flac24bit">Hi-Res 24bit</option>
                     </select>
                 </div>
+                <div class="setting-item qq-account-setting">
+                    <span class="setting-label">QQ音乐</span>
+                    <div class="qq-account-actions">
+                        <span id="qq-account-name" hidden></span>
+                        <button id="qq-login-btn" class="setting-action" type="button">扫码登录</button>
+                    </div>
+                </div>
                 <div class="setting-item">
                     <span class="setting-label">下载音质</span>
                     <select id="download-quality-select" class="setting-select">
@@ -180,6 +185,13 @@
                         <option value="flac">无损 FLAC</option>
                         <option value="flac24bit">Hi-Res 24bit</option>
                     </select>
+                </div>
+                <div class="setting-item">
+                    <span class="setting-label">下载目录</span>
+                    <button id="download-directory-btn" class="setting-action download-directory-picker" type="button" aria-label="设置下载目录">
+                        <i class="fas fa-folder-open" aria-hidden="true"></i>
+                        <span id="download-directory-path">选择文件夹</span>
+                    </button>
                 </div>
                 <button class="setting-button" id="clear-songs-cache-btn">
                     <i class="fas fa-compact-disc"></i>
@@ -217,11 +229,25 @@
     </nav>
 </div>
 
+<dialog id="qq-login-dialog" class="qq-login-dialog" aria-labelledby="qq-login-title">
+    <div class="qq-login-header">
+        <h2 id="qq-login-title">QQ音乐登录</h2>
+        <button id="qq-login-close" class="qq-login-close" type="button" aria-label="关闭登录"><i class="fas fa-times" aria-hidden="true"></i></button>
+    </div>
+    <div class="qq-login-code"><img id="qq-login-image" alt="QQ 登录二维码" hidden></div>
+    <p id="qq-login-status" role="status" aria-live="polite">正在获取二维码…</p>
+    <button id="qq-login-refresh" class="setting-action" type="button">刷新二维码</button>
+</dialog>
+
 <!-- JavaScript 模块 -->
 <script src="js/idb.js"></script>
 <script src="js/config.js"></script>
+<script src="js/qq-music-api.js"></script>
+<script src="js/qq-login-api.js"></script>
+<script src="js/music-api.js"></script>
 <script src="js/state.js"></script>
 <script src="js/dom.js"></script>
+<script src="js/native-audio-cache.js"></script>
 <script src="js/audio-engine.js"></script>
 <script src="js/utils.js"></script>
 <script src="js/image-loader.js"></script>
@@ -232,6 +258,9 @@
 <script src="js/search.js"></script>
 <script src="js/player.js"></script>
 <script src="js/download.js"></script>
+<script src="js/audio-file-format.js"></script>
+<script src="js/download-directory.js"></script>
+<script src="js/qq-login.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/audio-metadata-reader.js"></script>
 <script src="js/local-music.js"></script>

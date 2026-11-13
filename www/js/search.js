@@ -32,6 +32,7 @@ async function searchMusic() {
         const cacheKey = CacheKeys.getSearchKey(keyword, selectedSource);
         if (attemptCount === 1) {
             const cachedResults = await IDB.getSearchCache(cacheKey);
+            if (activeSearchId !== thisSearchId) return;
             if (cachedResults) {
                 displayResults(cachedResults);
                 return;
@@ -40,25 +41,22 @@ async function searchMusic() {
         
         let foundResults = false;
         try {
-            let response;
-            if (selectedSource === 'aggregate') {
-                response = await fetch(`${API_BASE}?type=aggregateSearch&keyword=${encodeURIComponent(keyword)}`);
-            } else {
-                response = await fetch(`${API_BASE}?source=${selectedSource}&type=search&keyword=${encodeURIComponent(keyword)}&limit=30`);
-            }
-            const data = await response.json();
-            if (data.code === 200 && data.data && data.data.results && data.data.results.length > 0) {
-                let results = data.data.results;
+            let results = await MusicAPI.search(selectedSource, keyword);
+            if (activeSearchId !== thisSearchId) return;
+            if (results.length > 0) {
                 if (selectedSource === 'aggregate') {
                     results = deduplicateResults(results);
                 }
                 await IDB.setSearchCache(cacheKey, results);
+                if (activeSearchId !== thisSearchId) return;
                 displayResults(results);
                 foundResults = true;
             }
         } catch (error) {
             console.error('搜索失败:', error);
-            DOM.resultsContainer.innerHTML = '搜索时发生错误，请重试...';
+            if (activeSearchId !== thisSearchId) return;
+            DOM.resultsContainer.textContent = error.message || '搜索失败，请重试';
+            if (attemptCount >= 3) break;
         }
 
         if (foundResults) break;

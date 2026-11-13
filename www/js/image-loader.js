@@ -180,20 +180,28 @@ async function loadBackgroundImageWithFallback(apiUrl, elements, expectedTrackId
     }
 }
 
+function observeTrackImage(image, track) {
+    image.trackData = track;
+    imageObserver.observe(image);
+}
+
 function setupImageObserver() {
     imageObserver = new IntersectionObserver((entries, observer) => {
         entries.forEach(async entry => {
             if (entry.isIntersecting) {
                 const img = entry.target;
-                const apiUrl = img.dataset.apiUrl;
+                const cacheKey = img.dataset.apiUrl;
                 const songAssetsCache = await caches.open(SONG_ASSETS_CACHE_NAME);
-                const cachedResponse = await songAssetsCache.match(apiUrl);
+                const cachedResponse = await songAssetsCache.match(cacheKey);
                 
                 if (cachedResponse) {
                     const blob = await cachedResponse.blob();
                     img.src = URL.createObjectURL(blob);
                 } else {
-                    loadImageWithRetry(apiUrl, img);
+                    try {
+                        const apiUrl = img.trackData ? await MusicAPI.getCoverUrl(img.trackData) : cacheKey;
+                        loadImageWithRetry(apiUrl, img);
+                    } catch (error) { console.warn('封面加载失败:', error); }
                 }
                 observer.unobserve(img);
             }

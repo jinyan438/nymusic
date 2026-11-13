@@ -21,6 +21,7 @@ function harness(native = true) {
     const requests = [];
     const chunks = [];
     const revoked = [];
+    const files = new Map();
     let now = 0;
     const plugin = {
         async addListener(name, listener) { events.set(name, listener); return { remove() {} }; },
@@ -30,11 +31,11 @@ function harness(native = true) {
         async seek({ position }) { return { clientId: playback.clientId, paused: false, position, duration: 10 }; }
     };
     const filesystem = {
-        async stat() { throw new Error('Missing'); },
-        async writeFile(options) { chunks.push({ ...options, bytes: Buffer.from(options.data, 'base64') }); },
-        async appendFile(options) { chunks.push({ ...options, bytes: Buffer.from(options.data, 'base64') }); },
-        async rename() {},
-        async deleteFile() {},
+        async stat({ path }) { if (!files.has(path)) throw new Error('Missing'); return { size: files.get(path).length }; },
+        async writeFile(options) { const bytes = Buffer.from(options.data, 'base64'); chunks.push({ ...options, bytes }); files.set(options.path, bytes); },
+        async appendFile(options) { const bytes = Buffer.from(options.data, 'base64'); chunks.push({ ...options, bytes }); files.set(options.path, Buffer.concat([files.get(options.path), bytes])); },
+        async rename({ from, to }) { files.set(to, files.get(from)); files.delete(from); },
+        async deleteFile({ path }) { files.delete(path); },
         async getUri({ path }) { return { uri: `file:///cache/${path}` }; }
     };
     const capacitor = { isNativePlatform: () => native, getPlatform: () => native ? 'android' : 'web', registerPlugin: () => plugin, Plugins: { Filesystem: filesystem } };
@@ -42,11 +43,17 @@ function harness(native = true) {
         EventTarget, Event, CustomEvent: DetailEvent, console, Uint8Array, TextEncoder, btoa,
         crypto: webcrypto, performance: { now: () => now }, Capacitor: capacitor,
         DOM: { audioPlayer: element }, document: { addEventListener() {} },
-        URL: { createObjectURL: () => 'blob:cached', revokeObjectURL: value => revoked.push(value) }
+        URLSearchParams,
+        URL: class extends URL {
+            static createObjectURL() { return 'blob:cached'; }
+            static revokeObjectURL(value) { revoked.push(value); }
+        }
     });
-    vm.runInContext(readFileSync(join(__dirname, '../www/js/audio-engine.js'), 'utf8'), context);
+    for (const file of ['native-audio-cache', 'audio-engine']) {
+        vm.runInContext(readFileSync(join(__dirname, `../www/js/${file}.js`), 'utf8'), context);
+    }
     const playback = vm.runInContext('Playback', context);
-    return { playback, plugin, events, element, requests, chunks, revoked, context, clock: value => { now = value; } };
+    return { playback, plugin, filesystem, files, events, element, requests, chunks, revoked, context, clock: value => { now = value; } };
 }
 
 test('Android forwards raw file paths and queue metadata to BASS without starting HTML audio', async () => {
@@ -92,17 +99,24 @@ test('Fast track changes discard cancelled native load results', async () => {
 });
 
 test('Cached audio reaches the native file intact in bounded bridge chunks', async () => {
-    const { playback, chunks, requests } = harness();
+    const { playback, chunks, requests, files } = harness();
     const bytes = Uint8Array.from({ length: 450000 }, (_, i) => i % 251);
     await playback.load({
         uri: 'https://example.org/audio', cachedResponse: new Response(bytes), cacheKey: 'track-key',
-        queue: [{ uri: 'https://example.org/audio' }], index: 0
+        resolveQqMusicUrl: true, requestHeaders: { Cookie: 'uin=123' },
+        queue: [{ uri: 'https://example.org/audio', resolveQqMusicUrl: true }], index: 0
     });
     assert.ok(chunks.length > 1);
     assert.ok(chunks.every(chunk => chunk.bytes.length <= 192 * 1024));
     assert.deepEqual(Buffer.concat(chunks.map(chunk => chunk.bytes)), Buffer.from(bytes));
-    assert.match(requests[0].uri, /^file:\/\/\/cache\/bass-playback\/[a-f0-9]{64}\.audio$/);
+    assert.equal(files.size, 1);
+    assert.match([...files.keys()][0], /^bass-playback\/[a-f0-9]{64}\.audio$/);
+    assert.equal(requests[0].uri, 'https://example.org/audio');
     assert.equal(requests[0].queue[0].uri, requests[0].uri);
+    assert.equal(requests[0].resolveQqMusicUrl, true);
+    assert.equal(requests[0].queue[0].resolveQqMusicUrl, true);
+    assert.equal(requests[0].cacheKeys[0], 'track-key');
+    assert.equal(requests[0].queue[0].cacheKeys[0], 'track-key');
 });
 
 test('Browser playback and object URL ownership remain functional', async () => {
@@ -116,6 +130,33 @@ test('Browser playback and object URL ownership remain functional', async () => 
     assert.equal(element.src, 'https://example.org/music.mp3');
 });
 
+test('Repeated native playback reuses the file without reading or transferring the cached audio again', async () => {
+    const { playback, chunks, requests, files } = harness();
+    await playback.load({ uri: 'https://unused.example/audio', cachedResponse: new Response(new Uint8Array(450000)), cacheKey: 'same-track' });
+    const written = chunks.length;
+    await playback.load({
+        uri: 'https://unused.example/audio', cacheKey: 'same-track',
+        cachedResponse: { blob() { throw new Error('The complete song must not be read again'); } }
+    });
+    assert.equal(chunks.length, written);
+    assert.equal(files.size, 1);
+    assert.equal(requests[1].uri, requests[0].uri);
+});
+
+test('Cancelled native file preparation never publishes a partial song or starts obsolete playback', async () => {
+    const { playback, filesystem, files, requests } = harness();
+    const write = filesystem.writeFile;
+    let release;
+    filesystem.writeFile = async options => { await write(options); await new Promise(resolve => { release = resolve; }); };
+    const pending = playback.load({ uri: 'https://unused.example/audio', cachedResponse: new Response(new Uint8Array(450000)), cacheKey: 'cancelled' });
+    while (!release) await new Promise(setImmediate);
+    await playback.stop();
+    release();
+    await pending;
+    assert.equal(files.size, 0);
+    assert.equal(requests.length, 0);
+});
+
 test('Native queue payload excludes covers and lyrics and retains raw local URIs', () => {
     const { context } = harness();
     context.playlist = [
@@ -123,13 +164,30 @@ test('Native queue payload excludes covers and lyrics and retains raw local URIs
         { source: 'qq', trackId: '2', songName: 'Online' }
     ];
     context.playbackMode = 'order';
-    context.API_BASE = 'https://example.org/api';
     context.DOM.playQualitySelect = { value: 'flac' };
-    vm.runInContext(readFileSync(join(__dirname, '../www/js/player.js'), 'utf8'), context);
+    for (const name of ['config', 'qq-music-api', 'music-api', 'player']) {
+        vm.runInContext(readFileSync(join(__dirname, `../www/js/${name}.js`), 'utf8'), context);
+    }
     const result = vm.runInContext('getPlaybackContext(playlist[0])', context);
     assert.equal(result.queue[0].uri, 'content://media/1');
     assert.equal(result.index, 0);
     assert.equal(result.track.cover, undefined);
     assert.equal(result.track.lyrics, undefined);
-    assert.match(result.queue[1].uri, /br=flac$/);
+    assert.equal(result.queue[1].resolveQqMusicUrl, true);
+    const request = new URL(result.queue[1].uri);
+    assert.equal(request.hostname, 'u.y.qq.com');
+    assert.match(JSON.parse(request.searchParams.get('data')).req_0.param.filename[0], /^F000/);
+    assert.equal(result.queue[1].cacheKeys.length, 4);
+    assert.match(result.queue[1].cacheKeys[0], /source=qq&id=2&type=url&br=flac$/);
+});
+
+test('Android keeps QQ URL resolution in the service for uncached tracks', async () => {
+    const { playback, requests } = harness();
+    await playback.load({
+        uri: 'https://u.y.qq.com/cgi-bin/musicu.fcg?data=request',
+        resolveQqMusicUrl: true, requestHeaders: { Referer: 'https://y.qq.com/' },
+        track: { source: 'qq', trackId: 'mid' }
+    });
+    assert.equal(requests[0].resolveQqMusicUrl, true);
+    assert.equal(requests[0].requestHeaders.Referer, 'https://y.qq.com/');
 });

@@ -14,6 +14,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(LocalMusicFilesPlugin.class);
+        registerPlugin(MusicDownloadsPlugin.class);
         registerPlugin(BassAudioPlugin.class);
         super.onCreate(savedInstanceState);
         

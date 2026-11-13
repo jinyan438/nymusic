@@ -7,13 +7,14 @@ async function loadToplists() {
     
     try {
         if (source === 'aggregate') {
-            const [neteaseRes, qqRes] = await Promise.all([
-                fetch(`${API_BASE}?source=netease&type=toplists`).then(r => r.json()),
-                fetch(`${API_BASE}?source=qq&type=toplists`).then(r => r.json())
+            const [neteaseRes, qqRes] = await Promise.allSettled([
+                MusicAPI.getToplists('netease'),
+                MusicAPI.getToplists('qq')
             ]);
-            
-            const neteaseLists = (neteaseRes.code === 200 && neteaseRes.data?.list) ? neteaseRes.data.list : [];
-            const qqLists = (qqRes.code === 200 && qqRes.data?.list) ? qqRes.data.list : [];
+            if (currentToplistSource !== source) return;
+            if (neteaseRes.status === 'rejected' && qqRes.status === 'rejected') throw qqRes.reason;
+            const neteaseLists = neteaseRes.status === 'fulfilled' ? neteaseRes.value : [];
+            const qqLists = qqRes.status === 'fulfilled' ? qqRes.value : [];
             
             aggregatedToplists = {};
             const mergedLists = [];
@@ -38,16 +39,12 @@ async function loadToplists() {
             
             renderToplistCategories(mergedLists, true);
         } else {
-            const response = await fetch(`${API_BASE}?source=${source}&type=toplists`);
-            const data = await response.json();
-            
-            if (data.code === 200 && data.data && data.data.list) {
-                renderToplistCategories(data.data.list, false);
-            } else {
-                DOM.toplistCategories.innerHTML = '<p style="color: var(--text-color-secondary);">加载榜单失败</p>';
-            }
+            const lists = await MusicAPI.getToplists(source);
+            if (currentToplistSource !== source) return;
+            renderToplistCategories(lists, false);
         }
     } catch (error) {
+        if (currentToplistSource !== source) return;
         console.error('加载榜单失败:', error);
         DOM.toplistCategories.innerHTML = '<p style="color: var(--text-color-secondary);">加载榜单失败，请重试</p>';
     }
@@ -87,16 +84,14 @@ async function loadAggregatedToplistSongs(normalizedName, displayName) {
         const promises = [];
         if (toplistInfo.netease) {
             promises.push(
-                fetch(`${API_BASE}?source=netease&id=${toplistInfo.netease}&type=toplist`)
-                    .then(r => r.json())
+                MusicAPI.getToplist('netease', toplistInfo.netease)
                     .then(data => ({ source: 'netease', data }))
                     .catch(() => ({ source: 'netease', data: null }))
             );
         }
         if (toplistInfo.qq) {
             promises.push(
-                fetch(`${API_BASE}?source=qq&id=${toplistInfo.qq}&type=toplist`)
-                    .then(r => r.json())
+                MusicAPI.getToplist('qq', toplistInfo.qq)
                     .then(data => ({ source: 'qq', data }))
                     .catch(() => ({ source: 'qq', data: null }))
             );
@@ -107,10 +102,9 @@ async function loadAggregatedToplistSongs(normalizedName, displayName) {
         const qqTracks = [];
         
         results.forEach(({ source, data }) => {
-            if (data?.code === 200 && data?.data?.list) {
-                const tracks = data.data.list.map((item, idx) => ({
-                    id: item.id,
-                    name: item.name,
+            if (data) {
+                const tracks = data.map((item, idx) => ({
+                    ...item,
                     artist: item.artist || '未知歌手',
                     album: item.album || '',
                     platform: source,
@@ -157,22 +151,16 @@ async function loadToplistSongs(toplistId, toplistName) {
     DOM.toplistSongs.innerHTML = `<p style="text-align:center;">正在加载...</p>`;
     
     try {
-        const response = await fetch(`${API_BASE}?source=${currentToplistSource}&id=${toplistId}&type=toplist`);
-        const data = await response.json();
-        
-        if (data.code === 200 && data.data && data.data.list) {
-            const source = data.data.source || currentToplistSource;
-            const tracks = data.data.list.map(item => ({
-                id: item.id,
-                name: item.name,
-                artist: item.artist || '未知歌手',
-                album: item.album || '',
-                platform: source
-            }));
-            renderToplistSongs(tracks);
-        } else {
-            DOM.toplistSongs.innerHTML = '<p style="color: var(--text-color-secondary);">加载歌曲失败</p>';
-        }
+        const source = currentToplistSource;
+        const data = await MusicAPI.getToplist(source, toplistId);
+        if (currentToplistSource !== source) return;
+        const tracks = data.map(item => ({
+            ...item,
+            artist: item.artist || '未知歌手',
+            album: item.album || '',
+            platform: source
+        }));
+        renderToplistSongs(tracks);
     } catch (error) {
         console.error('加载榜单歌曲失败:', error);
         DOM.toplistSongs.innerHTML = '<p style="color: var(--text-color-secondary);">加载失败，请重试</p>';
@@ -194,12 +182,13 @@ async function renderToplistSongs(tracks) {
             source: track.platform,
             songName: track.name,
             artist: track.artist,
-            album: track.album || ''
+            album: track.album || '',
+            albumMid: track.albumMid || '', mediaId: track.mediaId || ''
         };
         
         const songKey = CacheKeys.getSongKey(trackDataset.source, trackDataset.trackId, DOM.downloadQualitySelect.value);
         const isDownloaded = await songAssetsCache.match(songKey);
-        const picUrl = `${API_BASE}?source=${trackDataset.source}&id=${trackDataset.trackId}&type=pic`;
+        const picUrl = CacheKeys.getPicKey(trackDataset.source, trackDataset.trackId);
         
         item.innerHTML = `
             <span style="min-width:30px;text-align:center;color:${index < 3 ? '#e74c3c' : 'var(--text-color-secondary)'};font-weight:${index < 3 ? '600' : '400'};">${index + 1}</span>
@@ -218,7 +207,7 @@ async function renderToplistSongs(tracks) {
         if (isDownloaded) item.querySelector('.download-btn').classList.add('downloaded');
         
         const imgElement = item.querySelector('img');
-        imageObserver.observe(imgElement);
+        observeTrackImage(imgElement, trackDataset);
         
         addFastClick(item.querySelector('.info'), () => playSong(trackDataset));
         item.querySelector('.add-btn').addEventListener('click', e => { e.stopPropagation(); addToPlaylist(trackDataset); });

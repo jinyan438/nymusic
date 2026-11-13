@@ -55,6 +55,8 @@ function initEventListeners() {
     DOM.musicSourceSelect.addEventListener('change', saveMusicSource);
     DOM.playQualitySelect.addEventListener('change', savePlayQuality);
     DOM.downloadQualitySelect.addEventListener('change', saveDownloadQuality);
+    DOM.downloadDirectoryBtn.addEventListener('click', chooseDownloadDirectory);
+    QQLogin.init();
     DOM.clearSongsCacheBtn.addEventListener('click', clearSongCache);
     DOM.clearAllCacheBtn.addEventListener('click', clearAllCache);
 }
@@ -66,9 +68,9 @@ async function initApp() {
     initNavigation();
     initEventListeners();
     initFullscreenLyrics();
+    await loadSettings();
     await loadPlaylist();
     await loadPlaybackMode();
-    await loadSettings();
     await LocalMusic.init();
     try {
         await Playback.init();

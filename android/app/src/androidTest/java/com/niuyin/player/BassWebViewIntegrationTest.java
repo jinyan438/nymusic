@@ -9,6 +9,8 @@ import android.webkit.WebView;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -37,6 +39,8 @@ public class BassWebViewIntegrationTest {
         instrumentation.runOnMainSync(() -> holder.set(((MainActivity) activity).getBridge().getWebView()));
         WebView view = holder.get();
         File file = BassAudioIntegrationTest.wav(instrumentation.getTargetContext(), 48000, 48000 * 4, true);
+        String cacheKey = "https://music-dl.sayqz.com/api/?source=qq&id=bridge-cache&type=url&br=flac";
+        File cached = CachedAudioFiles.forKey(instrumentation.getTargetContext().getCacheDir(), cacheKey);
         try {
             long deadline = SystemClock.elapsedRealtime() + 15000;
             while (!evaluate(view, "typeof Playback !== 'undefined' && !!Playback.plugin").equals("true") && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(50);
@@ -59,10 +63,39 @@ public class BassWebViewIntegrationTest {
             SystemClock.sleep(500);
             double position = Double.parseDouble(evaluate(view, "Playback.currentTime"));
             assertEquals(1, position, 0.05);
+
+            cached.getParentFile().mkdirs();
+            Files.copy(file.toPath(), cached.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            evaluate(view, "window.__cachedResult = 'waiting'; Playback.load({uri:'http://127.0.0.1:1/never-request',resolveQqMusicUrl:true,cacheKey:"
+                + JSONObject.quote(cacheKey) + ",cacheKeys:[" + JSONObject.quote(cacheKey) + "],cachedResponse:{blob(){throw new Error('Cached audio was read again')}},"
+                + "track:{source:'qq',trackId:'bridge-cache'},queue:[]}).then(()=>window.__cachedResult='ready').catch(e=>window.__cachedResult=e.message); 'started'");
+            deadline = SystemClock.elapsedRealtime() + 10000;
+            do { status = evaluate(view, "window.__cachedResult"); if (!status.equals("waiting")) break; SystemClock.sleep(25); }
+            while (SystemClock.elapsedRealtime() < deadline);
+            assertEquals("ready", status);
+            assertEquals("BASS", evaluate(view, "Playback.state.engine"));
+            assertEquals("4", evaluate(view, "Playback.duration"));
+
+            evaluate(view, "window.__replaceResult = 'waiting'; NativeAudioCache.store(new Blob([new Uint8Array([1,2,3,4])]),"
+                + JSONObject.quote(cacheKey) + ",Capacitor).then(()=>window.__replaceResult='done').catch(e=>window.__replaceResult=e.message); 'started'");
+            deadline = SystemClock.elapsedRealtime() + 5000;
+            do { status = evaluate(view, "window.__replaceResult"); if (!status.equals("waiting")) break; SystemClock.sleep(25); }
+            while (SystemClock.elapsedRealtime() < deadline);
+            assertEquals("done", status);
+            assertEquals(4, cached.length());
+
+            evaluate(view, "window.__clearResult = 'waiting'; NativeAudioCache.clear().then(()=>window.__clearResult='done').catch(e=>window.__clearResult=e.message); 'started'");
+            deadline = SystemClock.elapsedRealtime() + 5000;
+            do { status = evaluate(view, "window.__clearResult"); if (!status.equals("waiting")) break; SystemClock.sleep(25); }
+            while (SystemClock.elapsedRealtime() < deadline);
+            assertEquals("done", status);
+            assertFalse(cached.exists());
+            assertTrue("Clearing the playback cache deleted an unrelated file", file.exists());
         } finally {
             evaluate(view, "Playback.stop(); 'stopped'");
             instrumentation.runOnMainSync(activity::finish);
             file.delete();
+            cached.delete();
         }
     }
 }

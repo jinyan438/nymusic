@@ -6,12 +6,14 @@ import android.net.Uri;
 import com.un4seen.bass.BASS;
 import java.io.File;
 import java.io.IOException;
+import org.json.JSONObject;
 
 final class BassDecoder implements AutoCloseable {
     private static boolean initialized;
     private static final String[] PLUGINS = { "bassflac", "bassalac", "bassopus", "bassape", "basswv", "bassdsd" };
     final BASS.BASS_CHANNELINFO info = new BASS.BASS_CHANNELINFO();
     volatile HttpAudioSource network;
+    private final QqMusicUrlResolver qqResolver = new QqMusicUrlResolver();
     volatile boolean cancelled;
     int handle;
     double duration;
@@ -35,6 +37,19 @@ final class BassDecoder implements AutoCloseable {
     }
 
     void open(Context context, String location) throws IOException {
+        open(context, location, false, null);
+    }
+
+    void open(Context context, String location, boolean resolveQqMusicUrl, JSONObject requestHeaders) throws IOException {
+        open(context, location, resolveQqMusicUrl, requestHeaders, null);
+    }
+
+    void open(Context context, String location, boolean resolveQqMusicUrl, JSONObject requestHeaders, String[] cacheKeys) throws IOException {
+        if (cancelled) throw new IOException("Playback cancelled");
+        File cached = CachedAudioFiles.find(context.getCacheDir(), cacheKeys);
+        if (cached != null) { location = cached.getPath(); resolveQqMusicUrl = false; }
+        if (resolveQqMusicUrl) location = qqResolver.resolve(location, requestHeaders);
+        if (cancelled) throw new IOException("Playback cancelled");
         initialize(context);
         int flags = BASS.BASS_STREAM_DECODE | BASS.BASS_SAMPLE_FLOAT | BASS.BASS_ASYNCFILE;
         Uri uri = Uri.parse(location);
@@ -65,7 +80,7 @@ final class BassDecoder implements AutoCloseable {
         duration = bytes >= 0 ? BASS.BASS_ChannelBytes2Seconds(handle, bytes) : 0;
     }
 
-    void cancel() { cancelled = true; if (network != null) network.close(); }
+    void cancel() { cancelled = true; qqResolver.close(); if (network != null) network.close(); }
     boolean isLosslessInteger() { return PcmCodec.losslessInteger(info.ctype, info.origres); }
     static IOException error(String operation) { return new IOException(operation + "失败 (BASS " + BASS.BASS_ErrorGetCode() + ")"); }
     @Override public void close() {

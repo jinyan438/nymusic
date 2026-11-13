@@ -90,11 +90,9 @@ async function openPlaylistDetail(source, playlistId) {
     DOM.playlistDetailSongs.innerHTML = '<p style="text-align:center;">正在加载歌单...</p>';
     
     try {
-        const response = await fetch(`${API_BASE}?source=${source}&id=${playlistId}&type=playlist`);
-        const data = await response.json();
-        
-        if (data.code === 200 && data.data) {
-            const info = data.data.info || {};
+        const data = await MusicAPI.getPlaylist(source, playlistId);
+        if (data) {
+            const info = data.info || {};
             const playlistName = info.name || '歌单';
             const playlistAuthor = info.author || '未知';
             
@@ -108,9 +106,8 @@ async function openPlaylistDetail(source, playlistId) {
                 renderImportedPlaylists();
             }
             
-            const tracks = (data.data.list || []).map(item => ({
-                id: item.id,
-                name: item.name,
+            const tracks = (data.list || []).map(item => ({
+                ...item,
                 artist: item.artist || '未知歌手',
                 album: item.album || '',
                 platform: source
@@ -143,12 +140,13 @@ async function renderPlaylistDetailSongs(tracks) {
             source: track.platform,
             songName: track.name,
             artist: track.artist,
-            album: track.album || ''
+            album: track.album || '',
+            albumMid: track.albumMid || '', mediaId: track.mediaId || ''
         };
         
         const songKey = CacheKeys.getSongKey(trackDataset.source, trackDataset.trackId, DOM.downloadQualitySelect.value);
         const isDownloaded = await songAssetsCache.match(songKey);
-        const picUrl = `${API_BASE}?source=${trackDataset.source}&id=${trackDataset.trackId}&type=pic`;
+        const picUrl = CacheKeys.getPicKey(trackDataset.source, trackDataset.trackId);
         
         item.innerHTML = `
             <span style="min-width:30px;text-align:center;color:var(--text-color-secondary);">${index + 1}</span>
@@ -167,7 +165,7 @@ async function renderPlaylistDetailSongs(tracks) {
         if (isDownloaded) item.querySelector('.download-btn').classList.add('downloaded');
         
         const imgElement = item.querySelector('img');
-        imageObserver.observe(imgElement);
+        observeTrackImage(imgElement, trackDataset);
         
         addFastClick(item.querySelector('.info'), () => playSong(trackDataset));
         item.querySelector('.add-btn').addEventListener('click', e => { e.stopPropagation(); addToPlaylist(trackDataset); });
@@ -200,12 +198,13 @@ async function renderList(container, tracks, isPlaylist) {
             source: track.platform || track.source,
             songName: track.name,
             artist: track.artist,
-            album: track.album || ''
+            album: track.album || '',
+            albumMid: track.albumMid || '', mediaId: track.mediaId || ''
         };
         
         const songKey = CacheKeys.getSongKey(trackDataset.source, trackDataset.trackId, DOM.downloadQualitySelect.value);
         const isDownloaded = await songAssetsCache.match(songKey);
-        const picUrl = `${API_BASE}?source=${trackDataset.source}&id=${trackDataset.trackId}&type=pic`;
+        const picUrl = CacheKeys.getPicKey(trackDataset.source, trackDataset.trackId);
 
         item.innerHTML = `
             <img data-api-url="${picUrl}" alt="专辑图" loading="lazy">
@@ -226,7 +225,7 @@ async function renderList(container, tracks, isPlaylist) {
         if (isDownloaded) item.querySelector('.download-btn').classList.add('downloaded');
 
         const imgElement = item.querySelector('img');
-        imageObserver.observe(imgElement);
+        observeTrackImage(imgElement, trackDataset);
 
         addFastClick(item.querySelector('.info'), () => {
             if (isPlaylist) currentPlaylistIndex = index;
